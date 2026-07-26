@@ -6,8 +6,11 @@ import {
   updateChild,
   deleteChild,
 } from "../controllers/children.controller";
+import { requireAuth } from "../middleware/auth.middleware";
 
 const router = Router();
+
+router.use(requireAuth);
 
 router.get("/", getAllChildren);
 router.get("/:id", getChildById);

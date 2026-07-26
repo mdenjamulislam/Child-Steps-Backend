@@ -3,14 +3,21 @@ import { supabase } from "../config/supabase";
 
 // GET /api/children
 export const getAllChildren = async (
-  _req: Request,
+  req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const { data, error } = await supabase
+    const userRole = req.authUser?.role;
+    let query = supabase
       .from("children")
       .select("*")
       .order("created_at", { ascending: false });
+
+    if (userRole !== "admin" && userRole !== "super_admin" && userRole !== "staff") {
+      query = query.eq("parent_id", req.authUser?.id);
+    }
+
+    const { data, error } = await query;
 
     if (error) throw error;
     res.json({ success: true, data });
@@ -25,13 +32,25 @@ export const getChildById = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { data, error } = await supabase
+    const userRole = req.authUser?.role;
+    let query = supabase
       .from("children")
       .select("*, milestones(*)")
-      .eq("id", req.params.id)
-      .single();
+      .eq("id", req.params.id);
 
-    if (error) throw error;
+    if (userRole !== "admin" && userRole !== "super_admin" && userRole !== "staff") {
+      query = query.eq("parent_id", req.authUser?.id);
+    }
+
+    const { data, error } = await query.single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        res.status(404).json({ success: false, error: "Child not found or access denied" });
+        return;
+      }
+      throw error;
+    }
     if (!data) {
       res.status(404).json({ success: false, error: "Child not found" });
       return;
@@ -48,12 +67,17 @@ export const createChild = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { name, date_of_birth, gender, parent_id, avatar_url, notes } =
-      req.body;
+    const { first_name, last_name, date_of_birth, gender, blood_group } = req.body;
+    const parent_id = req.authUser?.id;
+
+    if (!parent_id) {
+      res.status(401).json({ success: false, error: "Unauthorized" });
+      return;
+    }
 
     const { data, error } = await supabase
       .from("children")
-      .insert([{ name, date_of_birth, gender, parent_id, avatar_url, notes }])
+      .insert([{ first_name, last_name, date_of_birth, gender, blood_group, parent_id }])
       .select()
       .single();
 
@@ -70,9 +94,34 @@ export const updateChild = async (
   res: Response
 ): Promise<void> => {
   try {
+    const userRole = req.authUser?.role;
+    const { first_name, last_name, date_of_birth, gender, blood_group } = req.body;
+
+    // Verify ownership first
+    const { data: child, error: childError } = await supabase
+      .from("children")
+      .select("parent_id")
+      .eq("id", req.params.id)
+      .single();
+
+    if (childError || !child) {
+      res.status(404).json({ success: false, error: "Child not found" });
+      return;
+    }
+
+    if (
+      child.parent_id !== req.authUser?.id &&
+      userRole !== "admin" &&
+      userRole !== "super_admin" &&
+      userRole !== "staff"
+    ) {
+      res.status(403).json({ success: false, error: "Forbidden: Not the owner" });
+      return;
+    }
+
     const { data, error } = await supabase
       .from("children")
-      .update(req.body)
+      .update({ first_name, last_name, date_of_birth, gender, blood_group })
       .eq("id", req.params.id)
       .select()
       .single();
@@ -90,6 +139,29 @@ export const deleteChild = async (
   res: Response
 ): Promise<void> => {
   try {
+    const userRole = req.authUser?.role;
+
+    const { data: child, error: childError } = await supabase
+      .from("children")
+      .select("parent_id")
+      .eq("id", req.params.id)
+      .single();
+
+    if (childError || !child) {
+      res.status(404).json({ success: false, error: "Child not found" });
+      return;
+    }
+
+    if (
+      child.parent_id !== req.authUser?.id &&
+      userRole !== "admin" &&
+      userRole !== "super_admin" &&
+      userRole !== "staff"
+    ) {
+      res.status(403).json({ success: false, error: "Forbidden: Not the owner" });
+      return;
+    }
+
     const { error } = await supabase
       .from("children")
       .delete()
