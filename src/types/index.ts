@@ -118,10 +118,21 @@ export interface Child {
   updated_at: string;
 }
 
+export interface GrowthRecord {
+  id: string;
+  child_id: string;
+  record_date: string;
+  weight_kg: number;
+  height_cm: number;
+  head_circumference_cm?: number | null;
+  bmi: number;
+  created_at: string;
+}
+
 export interface Milestone {
   id: string;
   title: string;
-  description?: string;
+  description?: string | null;
   target_age_months: number;
   category: "Cognitive" | "Motor Skills" | "Language" | "Social-Emotional";
 }
@@ -130,9 +141,9 @@ export interface ChildMilestone {
   id: string;
   child_id: string;
   milestone_id: string;
-  achieved_date?: string;
+  achieved_date?: string | null;
   status: "not-started" | "in-progress" | "achieved";
-  notes?: string;
+  notes?: string | null;
   created_at: string;
 }
 
@@ -141,3 +152,4 @@ export type MilestoneCategory =
   | "Motor Skills"
   | "Language"
   | "Social-Emotional";
+
