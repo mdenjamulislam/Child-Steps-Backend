@@ -153,3 +153,31 @@ export type MilestoneCategory =
   | "Language"
   | "Social-Emotional";
 
+// ── Vaccination Types ────────────────────────────────────────────────────────
+
+export interface Vaccine {
+  id: string;
+  name: string;
+  description: string | null;
+  recommended_age_months: number;
+  doses_required: number;
+  created_at: string;
+}
+
+export type VaccinationStatus = "scheduled" | "administered" | "skipped";
+
+export interface VaccinationRecord {
+  id: string;
+  child_id: string;
+  vaccine_id: string;
+  scheduled_date: string;
+  status: VaccinationStatus;
+  administered_date: string | null;
+  administered_by: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined from vaccines table
+  vaccine?: Vaccine;
+}
+
