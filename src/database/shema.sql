@@ -1,3 +1,26 @@
+-- 1. Role-Based Access Control (RBAC) Foundation
+-- Create roles table
+CREATE TABLE public.roles (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    name VARCHAR(50) NOT NULL UNIQUE, -- 'super_admin', 'admin', 'manager', 'staff', 'parent', 'teacher', 'guardian'
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create permissions table
+CREATE TABLE public.permissions (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE, -- e.g., 'manage_users', 'edit_vaccines', 'view_all_profiles', 'access_ai_logs'
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Junction table for Role-Permission mapping (Many-to-Many)
+CREATE TABLE public.role_permissions (
+    role_id UUID REFERENCES public.roles(id) ON DELETE CASCADE,
+    permission_id UUID REFERENCES public.permissions(id) ON DELETE CASCADE,
+    PRIMARY KEY (role_id, permission_id)
+);
 
 -- 2. User Profiles (Updated to reference Roles)
 -- Updated profiles table referencing the roles table

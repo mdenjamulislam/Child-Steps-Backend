@@ -3,24 +3,36 @@ import { supabase } from "../config/supabase";
 import { verifyChildAccess } from "../utils/childAccess";
 import type { Vaccine, VaccinationRecord } from "../types";
 
-// ── Helper: add months to a date string ──────────────────────────────────────
+// ── Helper: add months to a date string (handles month-end edge cases) ────────
 function addMonthsToDate(dateStr: string, months: number): string {
   const date = new Date(dateStr);
   date.setMonth(date.getMonth() + months);
   return date.toISOString().split("T")[0];
 }
 
+// ── Helper: validate UUID format ──────────────────────────────────────────────
+function isValidUUID(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+// ── Helper: validate ISO date string (YYYY-MM-DD) ─────────────────────────────
+function isValidDate(dateStr: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
+  const d = new Date(dateStr);
+  return !isNaN(d.getTime());
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/vaccinations/initialize/:childId
-// Creates vaccination_records for a child based on the vaccines catalog.
-// Skips gracefully if already initialized (UNIQUE constraint on child_id+vaccine_id).
+// Creates vaccination_records for a child based on the master vaccines catalog.
+// Idempotent — uses upsert with ignoreDuplicates so re-calling is always safe.
 // ─────────────────────────────────────────────────────────────────────────────
 export const initializeSchedule = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const { childId } = req.params;
+    const childId = String(req.params.childId ?? "");
     const userId = req.authUser?.id;
 
     if (!userId) {
@@ -28,8 +40,8 @@ export const initializeSchedule = async (
       return;
     }
 
-    if (!childId) {
-      res.status(400).json({ success: false, error: "childId is required." });
+    if (!childId || !isValidUUID(childId)) {
+      res.status(400).json({ success: false, error: "A valid childId UUID is required." });
       return;
     }
 
@@ -55,16 +67,33 @@ export const initializeSchedule = async (
       return;
     }
 
-    // Fetch the full vaccines master catalog
+    if (!child.date_of_birth || !isValidDate(child.date_of_birth)) {
+      res.status(422).json({
+        success: false,
+        error: "Child's date_of_birth is missing or invalid. Cannot build vaccination schedule.",
+      });
+      return;
+    }
+
+    // Fetch the full vaccines master catalog, ordered chronologically
     const { data: vaccines, error: vaccinesError } = await supabase
       .from("vaccines")
       .select("*")
       .order("recommended_age_months", { ascending: true });
 
-    if (vaccinesError || !vaccines || vaccines.length === 0) {
+    if (vaccinesError) {
+      console.error("Error fetching vaccines catalog:", vaccinesError);
       res.status(500).json({
         success: false,
         error: "Failed to fetch vaccines catalog.",
+      });
+      return;
+    }
+
+    if (!vaccines || vaccines.length === 0) {
+      res.status(404).json({
+        success: false,
+        error: "No vaccines found in the catalog. Please seed the vaccines table first.",
       });
       return;
     }
@@ -78,13 +107,35 @@ export const initializeSchedule = async (
         vaccine.recommended_age_months
       ),
       status: "scheduled" as const,
+      administered_date: null,
+      administered_by: null,
+      notes: null,
     }));
 
     // Upsert — on conflict (child_id, vaccine_id) do nothing so re-init is safe
-    const { data, error } = await supabase
+    const { data: rawData, error } = await supabase
       .from("vaccination_records")
       .upsert(records, { onConflict: "child_id,vaccine_id", ignoreDuplicates: true })
-      .select();
+      .select(`
+        id,
+        child_id,
+        vaccine_id,
+        scheduled_date,
+        status,
+        administered_date,
+        administered_by,
+        notes,
+        created_at,
+        updated_at,
+        vaccine:vaccines (
+          id,
+          name,
+          description,
+          recommended_age_months,
+          doses_required,
+          created_at
+        )
+      `);
 
     if (error) {
       console.error("Error initializing vaccination schedule:", error);
@@ -95,9 +146,11 @@ export const initializeSchedule = async (
       return;
     }
 
+    const data = (rawData ?? []) as unknown as VaccinationRecord[];
+
     res.status(201).json({
       success: true,
-      message: `Vaccination schedule initialized with ${vaccines.length} vaccines.`,
+      message: `Vaccination schedule initialized with ${vaccines.length} vaccine(s). Re-initialization skips existing records.`,
       data,
     });
   } catch (err: any) {
@@ -108,14 +161,15 @@ export const initializeSchedule = async (
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/vaccinations/:childId
-// Returns the full vaccination timeline for a child, joined with vaccine info.
+// Returns the full vaccination timeline for a child, joined with vaccine info,
+// sorted chronologically by scheduled_date.
 // ─────────────────────────────────────────────────────────────────────────────
 export const getVaccinationSchedule = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const { childId } = req.params;
+    const childId = String(req.params.childId ?? "");
     const userId = req.authUser?.id;
 
     if (!userId) {
@@ -123,8 +177,8 @@ export const getVaccinationSchedule = async (
       return;
     }
 
-    if (!childId) {
-      res.status(400).json({ success: false, error: "childId is required." });
+    if (!childId || !isValidUUID(childId)) {
+      res.status(400).json({ success: false, error: "A valid childId UUID is required." });
       return;
     }
 
@@ -176,7 +230,7 @@ export const getVaccinationSchedule = async (
 
     res.status(200).json({
       success: true,
-      data: (data ?? []) as VaccinationRecord[],
+      data: (data ?? []) as unknown as VaccinationRecord[],
     });
   } catch (err: any) {
     console.error("getVaccinationSchedule error:", err);
@@ -186,15 +240,16 @@ export const getVaccinationSchedule = async (
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PUT /api/vaccinations/record/:recordId
-// Marks a vaccination record as administered (or updates notes).
-// Validates that the record belongs to one of the parent's children.
+// Marks a vaccination record as 'administered' or 'skipped' and captures
+// administered_date, administered_by (clinic/doctor name), and optional notes.
+// Validates parent-ownership and all required fields.
 // ─────────────────────────────────────────────────────────────────────────────
 export const markAdministered = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const { recordId } = req.params;
+    const recordId = String(req.params.recordId ?? "");
     const { administered_date, administered_by, notes, status } = req.body;
     const userId = req.authUser?.id;
 
@@ -203,15 +258,43 @@ export const markAdministered = async (
       return;
     }
 
-    if (!recordId) {
-      res.status(400).json({ success: false, error: "recordId is required." });
+    if (!recordId || !isValidUUID(recordId)) {
+      res.status(400).json({ success: false, error: "A valid recordId UUID is required." });
       return;
+    }
+
+    // Validate and resolve status
+    const validStatuses = ["scheduled", "administered", "skipped"] as const;
+    type ValidStatus = (typeof validStatuses)[number];
+    const finalStatus: ValidStatus =
+      status && validStatuses.includes(status as ValidStatus)
+        ? (status as ValidStatus)
+        : "administered";
+
+    // Validate administered_date format
+    if (administered_date && !isValidDate(administered_date)) {
+      res.status(400).json({
+        success: false,
+        error: "administered_date must be a valid YYYY-MM-DD date string.",
+      });
+      return;
+    }
+
+    // administered_by is required when marking as administered
+    if (finalStatus === "administered") {
+      if (!administered_by || typeof administered_by !== "string" || !administered_by.trim()) {
+        res.status(400).json({
+          success: false,
+          error: "administered_by (doctor or clinic name) is required when marking a vaccine as administered.",
+        });
+        return;
+      }
     }
 
     // Fetch the record to verify ownership
     const { data: record, error: recordError } = await supabase
       .from("vaccination_records")
-      .select("id, child_id")
+      .select("id, child_id, status")
       .eq("id", recordId)
       .single();
 
@@ -220,7 +303,7 @@ export const markAdministered = async (
       return;
     }
 
-    // Verify parent owns this child
+    // Verify the authenticated parent owns this child
     const hasAccess = await verifyChildAccess(record.child_id, userId);
     if (!hasAccess) {
       res.status(403).json({
@@ -230,18 +313,26 @@ export const markAdministered = async (
       return;
     }
 
-    const validStatuses = ["scheduled", "administered", "skipped"];
-    const finalStatus = status && validStatuses.includes(status) ? status : "administered";
-
+    // Build the update payload based on target status
     const updatePayload: Partial<VaccinationRecord> = {
       status: finalStatus,
-      notes: notes ?? null,
     };
 
     if (finalStatus === "administered") {
       updatePayload.administered_date =
         administered_date ?? new Date().toISOString().split("T")[0];
-      updatePayload.administered_by = administered_by ?? null;
+      updatePayload.administered_by = administered_by.trim();
+      updatePayload.notes = notes?.trim() || null;
+    } else if (finalStatus === "skipped") {
+      // Clear administered fields when skipping
+      updatePayload.administered_date = null;
+      updatePayload.administered_by = null;
+      updatePayload.notes = notes?.trim() || null;
+    } else {
+      // Reverting to scheduled — clear all tracking fields
+      updatePayload.administered_date = null;
+      updatePayload.administered_by = null;
+      updatePayload.notes = null;
     }
 
     const { data, error } = await supabase
@@ -268,11 +359,93 @@ export const markAdministered = async (
 
     res.status(200).json({
       success: true,
-      message: "Vaccination record updated successfully.",
+      message: `Vaccination record marked as '${finalStatus}' successfully.`,
       data,
     });
   } catch (err: any) {
     console.error("markAdministered error:", err);
+    res.status(500).json({ success: false, error: err.message || "Internal server error." });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE /api/vaccinations/record/:recordId
+// Resets a vaccination record back to 'scheduled', clearing all administered
+// fields. Useful for correcting logging mistakes.
+// ─────────────────────────────────────────────────────────────────────────────
+export const resetVaccinationRecord = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const recordId = String(req.params.recordId ?? "");
+    const userId = req.authUser?.id;
+
+    if (!userId) {
+      res.status(401).json({ success: false, error: "Unauthorized." });
+      return;
+    }
+
+    if (!recordId || !isValidUUID(recordId)) {
+      res.status(400).json({ success: false, error: "A valid recordId UUID is required." });
+      return;
+    }
+
+    // Fetch the record to verify ownership
+    const { data: record, error: recordError } = await supabase
+      .from("vaccination_records")
+      .select("id, child_id")
+      .eq("id", recordId)
+      .single();
+
+    if (recordError || !record) {
+      res.status(404).json({ success: false, error: "Vaccination record not found." });
+      return;
+    }
+
+    const hasAccess = await verifyChildAccess(record.child_id, userId);
+    if (!hasAccess) {
+      res.status(403).json({
+        success: false,
+        error: "Access denied. You can only reset records for your own children.",
+      });
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("vaccination_records")
+      .update({
+        status: "scheduled",
+        administered_date: null,
+        administered_by: null,
+        notes: null,
+      })
+      .eq("id", recordId)
+      .select(
+        `
+        id, child_id, vaccine_id, scheduled_date, status,
+        administered_date, administered_by, notes, created_at, updated_at,
+        vaccine:vaccines (id, name, description, recommended_age_months, doses_required, created_at)
+      `
+      )
+      .single();
+
+    if (error) {
+      console.error("Error resetting vaccination record:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to reset vaccination record.",
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Vaccination record reset to 'scheduled' status successfully.",
+      data,
+    });
+  } catch (err: any) {
+    console.error("resetVaccinationRecord error:", err);
     res.status(500).json({ success: false, error: err.message || "Internal server error." });
   }
 };

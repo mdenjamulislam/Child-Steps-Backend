@@ -181,3 +181,11 @@ export interface VaccinationRecord {
   vaccine?: Vaccine;
 }
 
+// ── Guidelines / AI Types ────────────────────────────────────────────────────
+
+export interface GuidelineResponse {
+  physical_activity: string[];
+  nutrition: string[];
+  cognitive_focus: string[];
+  sleep_recommendations: string[];
+}
