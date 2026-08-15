@@ -209,9 +209,16 @@ export const login = async (req: Request, res: Response): Promise<void> => {
   const { email, password } = validation.payload;
 
   try {
-    // 1. Sign in with Supabase Auth
+    // 1. Sign in with Supabase Auth using a temporary client to avoid polluting global service_role client
+    const { createClient } = require("@supabase/supabase-js");
+    const tempClient = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_ANON_KEY!,
+      { auth: { persistSession: false } }
+    );
+    
     const { data: signInData, error: signInError } =
-      await supabase.auth.signInWithPassword({ email, password });
+      await tempClient.auth.signInWithPassword({ email, password });
 
     if (signInError || !signInData?.user || !signInData?.session) {
       const response: ApiResponse<null> = {
