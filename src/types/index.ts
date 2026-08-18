@@ -189,3 +189,26 @@ export interface GuidelineResponse {
   cognitive_focus: string[];
   sleep_recommendations: string[];
 }
+
+// ── Educational Record Types ──────────────────────────────────────────────────
+
+export interface LoggerProfile {
+  id: string;
+  full_name: string;
+  email: string;
+}
+
+export interface EducationalRecord {
+  id: string;
+  child_id: string;
+  academic_year: string;    // e.g. '2025-2026'
+  grade_level: string;      // e.g. 'Grade 3'
+  subject: string;          // e.g. 'Mathematics'
+  score_or_grade: string;   // e.g. '92%' or 'A'
+  teacher_feedback: string | null;
+  logged_by: string;        // UUID of the user who created this record
+  created_at: string;
+  updated_at: string;
+  // Joined from profiles table via logged_by FK
+  logger?: LoggerProfile;
+}
