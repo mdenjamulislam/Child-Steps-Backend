@@ -212,3 +212,116 @@ export interface EducationalRecord {
   // Joined from profiles table via logged_by FK
   logger?: LoggerProfile;
 }
+
+// ── Skill Development Types (Module 8) ───────────────────────────────────────
+
+export type SkillCategory =
+  | 'academic'
+  | 'artistic'
+  | 'athletic'
+  | 'social'
+  | 'technical';
+
+export type SkillStatus = 'suggested' | 'learning' | 'acquired';
+
+export interface ChildSkillMetadata {
+  rationale: string;
+  recommended_activities: string[];
+}
+
+export interface ChildSkill {
+  id: string;
+  child_id: string;
+  skill_name: string;
+  category: SkillCategory;
+  status: SkillStatus;
+  ai_generated: boolean;
+  metadata: ChildSkillMetadata;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Shape of a single suggestion returned by the AI before DB insert */
+export interface AISuggestedSkill {
+  skill_name: string;
+  category: SkillCategory;
+  rationale: string;
+  recommended_activities: string[];
+}
+
+// ── Notifications and Alerts Types (Module 9) ────────────────────────────────
+
+export type NotificationType =
+  | 'vaccine_reminder'
+  | 'milestone_alert'
+  | 'educational_update'
+  | 'system_notice';
+
+export interface NotificationRecord {
+  id: string;
+  profile_id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  reference_id: string | null;
+  is_read: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// ── Career Development Types (Module 11) ─────────────────────────────────────
+
+export type CareerDifficulty = "Beginner" | "Intermediate" | "Advanced";
+
+export interface CareerActionStep {
+  title: string;
+  description: string;
+  difficulty: CareerDifficulty;
+}
+
+export interface CareerGuidanceRecord {
+  id: string;
+  child_id: string;
+  recommended_path: string;
+  rationale: string;
+  action_steps: CareerActionStep[];
+  generated_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ── Progress Reports Types (Module 10) ───────────────────────────────────────
+
+export interface ProgressReportSummary {
+  childId: string;
+  childName: string;
+  growth: {
+    startWeight: number | null;
+    startHeight: number | null;
+    latestWeight: number | null;
+    latestHeight: number | null;
+    weightGain: number | null;
+    heightGain: number | null;
+    bmi: number | null;
+  };
+  routines: {
+    avgSleepOver30Days: number;
+    avgActivityOver30Days: number;
+    mostCommonMood: string;
+    dailyData: { date: string; sleep: number; activity: number }[];
+  };
+  academics: {
+    avgScore: number | null;
+    subjectScores: { subject: string; score: number }[];
+  };
+  vaccinations: {
+    totalScheduled: number;
+    totalAdministered: number;
+    percentComplete: number;
+  };
+  skills: {
+    totalAcquired: number;
+    totalLearning: number;
+    totalSuggested: number;
+  };
+}

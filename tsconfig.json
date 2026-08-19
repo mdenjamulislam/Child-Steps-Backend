@@ -13,11 +13,9 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
-    },
-    "ignoreDeprecations": "6.0"
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
