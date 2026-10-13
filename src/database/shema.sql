@@ -146,7 +146,9 @@ CREATE TABLE public.child_skills (
     category VARCHAR(100) CHECK (category IN ('academic', 'artistic', 'athletic', 'social', 'technical')),
     status VARCHAR(50) DEFAULT 'suggested' CHECK (status IN ('suggested', 'learning', 'acquired')),
     ai_generated BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    metadata JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Career Guidance
